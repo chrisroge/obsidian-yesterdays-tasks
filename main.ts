@@ -1,4 +1,4 @@
-import { Plugin, PluginManifest, Notice, TFile, WorkspaceLeaf, MarkdownView } from 'obsidian';
+import { Plugin, PluginManifest, Notice, TFile, WorkspaceLeaf, MarkdownView, App } from 'obsidian';
 
 export default class MyPlugin extends Plugin {
 	constructor(app: App, manifest: PluginManifest) {
@@ -25,10 +25,16 @@ export default class MyPlugin extends Plugin {
 	}
 
 	async replaceTasks() {
-		const activeLeaf: WorkspaceLeaf = this.app.workspace.activeLeaf;
+		const activeLeaf: WorkspaceLeaf | null = this.app.workspace.activeLeaf;
 		if (!activeLeaf) return;
 
-		if (activeLeaf.view instanceof MarkdownView) {
+		// Early return if activeLeaf is null
+		if (!activeLeaf) {
+			console.log("No active leaf found.");
+			return;
+		}
+
+		if (!activeLeaf || !(activeLeaf.view instanceof MarkdownView)) {
 			const editor = activeLeaf.view.sourceMode.cmEditor;
 			const doc = editor.getDoc();
 			const newContent = doc.getValue().replace(/- \[ \] /g, '- #rolled-forward-task ');
