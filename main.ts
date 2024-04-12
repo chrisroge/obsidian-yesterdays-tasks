@@ -18,6 +18,7 @@ export default class MyPlugin extends Plugin {
 
 	async rollUpTasks(file: TFile, topLevelFile: TFile, collectedTasks: Map<string, string[]> = new Map(), currentFileCtime?: number) {
 		const content = await this.app.vault.read(file);
+		let modifiedContent = content; // Clone content for modification
 		const fileStats = file.stat;
 		const wikilinkRegex = /\[\[([^\]]+)\]\]/g;
 		let match;
@@ -40,46 +41,33 @@ export default class MyPlugin extends Plugin {
 				collecting = true;
 				lastLineWasTask = true;
 				const blockId = `id-${Math.random().toString(36).substr(2, 9)}`;
-				line = line.replace(taskMatch[0], `${taskMatch[1]}- [ ] ${taskMatch[2]} [[${file.basename}#${blockId}|↩]]`);
-				console.log(`Task found and modified with block ID: ${blockId} in file: ${file.basename}`);
+				const modifiedLine = `${taskMatch[1]}- ${taskMatch[2]} [[${file.basename}#${blockId}|↩]]`;
+				currentList.push(modifiedLine); // Collect modified task for the top-level file
+				modifiedContent = modifiedContent.replace(line, `${taskMatch[1]}- ${taskMatch[2]}`); // Replace in content for the linked file
 			} else {
 				lastLineWasTask = false;
-			}
-
-			if (listMatch) {
-				currentList.push(line);
-				console.log(`Collecting line: ${line}`);
-			} else if (collecting && (emptyOrHeader || !lastLineWasTask && line.trim() !== '')) {
-				// Only end collecting if a header or non-empty non-list line follows a non-task line
-				if (currentList.length > 0) {
-					let tasks = collectedTasks.get(file.basename);
-					if (!tasks) {
-						tasks = [];
-						collectedTasks.set(file.basename, tasks);
-					}
-					tasks.push(currentList.join('\n'));
-					console.log(`List collected from ${file.basename}: ${currentList.join('\\n')}`);
-					currentList = [];
-					collecting = false;
+				if (listMatch) {
+					currentList.push(line);
 				}
-			} else if (collecting) {
-				// Continue collecting if the line is part of a task list context
-				currentList.push(line);
+			}
+
+			if (!collecting && (listMatch || emptyOrHeader)) {
+				currentList = []; // Reset current list if it's not collecting
 			}
 		}
 
-		// Handle any remaining collected list
-		if (collecting) {
-			let tasks = collectedTasks.get(file.basename);
-			if (!tasks) {
-				tasks = [];
-				collectedTasks.set(file.basename, tasks);
-			}
-			tasks.push(currentList.join('\n'));
-			console.log(`Remaining list collected from ${file.basename}: ${currentList.join('\\n')}`);
+		// Save modifications back to the file
+		if (file !== topLevelFile) { // Only modify content if it's not the top-level file
+			await this.app.vault.modify(file, modifiedContent);
 		}
 
-		await this.app.vault.modify(file, content);
+		// Collect tasks for top-level summary
+		let tasks = collectedTasks.get(file.basename);
+		if (!tasks) {
+			tasks = [];
+			collectedTasks.set(file.basename, tasks);
+		}
+		tasks.push(...currentList);
 
 		// Recursively process linked notes
 		while ((match = wikilinkRegex.exec(content)) !== null) {
@@ -87,7 +75,6 @@ export default class MyPlugin extends Plugin {
 			const linkedFile = this.app.vault.getAbstractFileByPath(`${linkedNoteTitle}.md`) as TFile | null;
 
 			if (linkedFile && linkedFile instanceof TFile && linkedFile.stat.ctime > currentFileCtime && !collectedTasks.has(linkedFile.basename)) {
-				console.log(`Processing linked file: ${linkedNoteTitle}`);
 				await this.rollUpTasks(linkedFile, topLevelFile, collectedTasks, currentFileCtime);
 			}
 		}
@@ -96,6 +83,7 @@ export default class MyPlugin extends Plugin {
 			this.updateTopLevelFile(topLevelFile, collectedTasks);
 		}
 	}
+
 
 
 
@@ -111,4 +99,9 @@ export default class MyPlugin extends Plugin {
 		await this.app.vault.modify(topLevelFile, topLevelContent);
 		new Notice('Tasks have been rolled up.');
 	}
+
+
+
+
+
 }
