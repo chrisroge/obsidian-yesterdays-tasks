@@ -25,73 +25,94 @@ export default class MyPlugin extends Plugin {
 	}
 
 	async replaceTasks() {
-		const activeLeaf: WorkspaceLeaf | null = this.app.workspace.activeLeaf;
-		if (!activeLeaf) return;
-
-		// Early return if activeLeaf is null
-		if (!activeLeaf) {
-			console.log("No active leaf found.");
+		const activeLeaf = this.app.workspace.activeLeaf;
+		if (!activeLeaf || !(activeLeaf.view instanceof MarkdownView)) {
+			new Notice('Active view is not a markdown editor.');
 			return;
 		}
 
-		if (!activeLeaf || !(activeLeaf.view instanceof MarkdownView)) {
-			const editor = activeLeaf.view.sourceMode.cmEditor;
-			const doc = editor.getDoc();
-			const newContent = doc.getValue().replace(/- \[ \] /g, '- #rolled-forward-task ');
-			doc.setValue(newContent);
-		} else {
-			new Notice('Active view is not a markdown editor.');
+		// At this point, it's confirmed that activeLeaf.view is a MarkdownView
+		const editor = activeLeaf.view.editor;
+		if (!editor) {
+			new Notice('No editor available.');
+			return;
 		}
+
+		const doc = editor.getDoc();
+		const newContent = doc.getValue().replace(/- \[ \] /g, '- #rolled-forward-task ');
+		doc.setValue(newContent);
+
+		new Notice('Tasks have been replaced!');
 	}
 
+
 	async rollUpTasks() {
-		const currentFile = this.app.workspace.getActiveFile() as TFile | null;
+		const currentFile = this.app.workspace.getActiveFile();
 		if (!currentFile) {
 			console.log("No active file.");
 			return;
 		}
 
-		let visitedNotes = new Set<string>();
-		let tasksByNote = new Map<string, string[]>();
+		let visitedNotes = new Set(); // To keep track of visited notes
+		let tasksByNote = new Map(); // To accumulate tasks by their source note with block IDs
 
+		// Generate a simple unique ID
 		const generateBlockId = () => `id-${Math.random().toString(36).substr(2, 9)}`;
 
-		const processLinkedNotes = async (file: TFile, sourceTitle: string | null = null) => {
+		// Recursive function to process tasks in linked notes
+		const processLinkedNotes = async (file, sourceTitle = null) => {
 			let content = await this.app.vault.read(file);
 			const wikilinkRegex = /\[\[([^\]]+)\]\]/g;
 			let match;
 
 			while ((match = wikilinkRegex.exec(content)) !== null) {
 				const linkedNoteTitle = match[1];
-				const linkedFile = this.app.vault.getAbstractFileByPath(`${linkedNoteTitle}.md`) as TFile | null;
+				// Attempt to resolve the linked note file
+				const linkedFile = this.app.vault.getAbstractFileByPath(`${linkedNoteTitle}.md`);
 
-				if (linkedFile && !visitedNotes.has(linkedFile.path)) {
-					visitedNotes.add(linkedFile.path);
+				if (linkedFile instanceof TFile && !visitedNotes.has(linkedFile.path)) {
+					visitedNotes.add(linkedFile.path); // Mark as visited
 
 					let linkedContent = await this.app.vault.read(linkedFile);
-					let tasks = (linkedContent.match(/- \[ \] .+/g) || []).map(task => {
-						return `- [ ] ${task.slice(6).trim()} [[${linkedNoteTitle}#^${generateBlockId()}|↩]]`;
-					});
+					// Find incomplete tasks
+					const tasks = linkedContent.match(/- \[ \] .+/g) || [];
 
 					if (tasks.length > 0) {
-						let currentTasks = tasksByNote.get(linkedNoteTitle) || [];
-						currentTasks.push(...tasks);
-						tasksByNote.set(linkedNoteTitle, currentTasks);
+						let blockId = generateBlockId(); // Generate one block ID per task for simplicity
+
+						// Update the original task in the linked note content
+						const updatedContent = linkedContent.replace(/- \[ \] (.+)/g, (match, taskText) => {
+							return `- ${taskText} ^${blockId}`; // Removed the double task prefix and added the block ID
+						});
+
+						await this.app.vault.modify(linkedFile, updatedContent.replace(/- \[ \] /g, "- #rolled-forward-task "));
+
+						// Extract tasks again, this time for linking
+						tasks.forEach(task => {
+							let modifiedTask = `- [ ] ${task.slice(6)} [[${linkedNoteTitle}#^${blockId}|↩]]`; // Correct task formatting for the top-level note
+							let currentTasks = tasksByNote.get(linkedNoteTitle) || [];
+							currentTasks.push(modifiedTask);
+							tasksByNote.set(linkedNoteTitle, currentTasks);
+						});
 					}
 
+					// Recursively process the linked note
 					await processLinkedNotes(linkedFile, linkedNoteTitle);
 				}
 			}
 		};
 
+		// Start processing from the current file
 		await processLinkedNotes(currentFile);
 
+		// Append rolled-up tasks under headings for each note with backlinks
 		if (tasksByNote.size > 0) {
 			let topLevelContent = await this.app.vault.read(currentFile);
 			tasksByNote.forEach((tasks, noteTitle) => {
-				topLevelContent += `\n\n### Rolled Up Tasks from [[${noteTitle}]]\n${tasks.join('\n')}`;
+				topLevelContent += `\n\n### ${noteTitle} Rolled Up Tasks\n${tasks.join('\n')}`;
 			});
 			await this.app.vault.modify(currentFile, topLevelContent);
 		}
 	}
+
 }
