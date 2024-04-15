@@ -1,12 +1,11 @@
 {
 	"id": "yesterdays-tasks-cleanup",
 	"name": "Yesterdays Tasks Cleanup",
-	"version": "1.0.12",
+	"version": "1.0.13",
 	"minAppVersion": "0.15.0",
 	"description": "Allows the user to easily convert tasks to simple bullet points because the task was rolled to the next daily note or is otherwise orphaned.",
 	"author": "Christopher G. Roge",
-	"authorUrl": "https://obsidian.md",
-	"fundingUrl": "https://obsidian.md/pricing",
+	"authorUrl": "https://github.com/chrisroge",
 	"isDesktopOnly": false,
 	"main": "main.js"
 }
