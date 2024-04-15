@@ -6,6 +6,7 @@ export default class MyPlugin extends Plugin {
 	}
 
 	onload() {
+
 		this.addRibbonIcon('dice', 'Roll Up Linked Tasks', () => {
 			const currentFile = this.app.workspace.getActiveFile();
 			if (currentFile) {
@@ -14,6 +15,17 @@ export default class MyPlugin extends Plugin {
 				new Notice("No active file.");
 			}
 		});
+
+		this.addRibbonIcon('checkmark', 'Remove Checkboxes', () => {
+			const currentFile = this.app.workspace.getActiveFile();
+			if (currentFile) {
+				this.removeCheckboxes(currentFile);
+				new Notice("Checkboxes removed.");
+			} else {
+				new Notice("No active file.");
+			}
+		});
+
 	}
 
 	async rollUpTasks(file: TFile, topLevelFile: TFile, collectedTasks: Map<string, string[]> = new Map(), currentFileCtime?: number) {
@@ -101,6 +113,13 @@ export default class MyPlugin extends Plugin {
 	}
 
 
+
+
+	async removeCheckboxes(file: TFile) {
+		const content = await this.app.vault.read(file);
+		const modifiedContent = content.replace(/^(\s*)- \[ \] (.+)/gm, '$1- $2');
+		await this.app.vault.modify(file, modifiedContent);
+	}
 
 
 
